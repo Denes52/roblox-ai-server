@@ -4,6 +4,28 @@ const fetch = require('node-fetch');
 const app = express();
 app.use(express.json());
 
+const systemPrompt = `
+Ты — ИИ‑помощник в Roblox. Игрок пишет что угодно. Твоя задача — понять суть команды и вернуть СТРОГО JSON по одному из шаблонов ниже.
+
+Примеры допустимых JSON:
+
+{"action": "place_block", "position": [10, 5, 3], "color": "red", "near": "игрок", "side": "слева"}
+{"action": "build_stair", "material": "Wood", "height": 5, "near": "игрок", "side": "справа"}
+{"action": "build_bridge", "material": "Wood", "length": 10, "near": "игрок", "side": "спереди"}
+{"action": "say", "text": "привет"}
+{"action": "follow_player"}
+{"action": "move", "direction": "вперед", "distance": 10, "speed": 5}
+{"action": "raise_hand", "angle": 90, "direction": "вверх"}
+{"action": "pickup", "near": "стол"}
+{"action": "stop"}
+
+… (добавьте сюда остальные шаблоны при необходимости) …
+
+Возвращай ТОЛЬКО JSON. Если команда не распознана, верни:
+{"action": "unknown"}
+
+`;
+
 app.post('/ai', async (req, res) => {
   const { message } = req.body;
   try {
@@ -16,111 +38,24 @@ app.post('/ai', async (req, res) => {
       body: JSON.stringify({
         model: 'meta-llama/Meta-Llama-3-70B-Instruct',
         messages: [
-          {
-            role: 'system',
-            content: `
-Ты — ИИ помощник в Roblox. Игрок пишет что угодно. Твоя задача — понять суть команды и вернуть СТРОГО JSON следующего вида:
-
-{
-  "action": "build_platform", // строго по шаблону
-  "params": { "x": 0, "y": 10, "z": 0 }
-}
-
-Допустимые значения поля "action":
-- "build_platform" — построить платформу или блоки
-- "follow_player" — следовать за игроком
-- "say" — сказать текст
-
-Правила выбора action:
-- Если игрок просит "следовать", "иди за мной" или "иди", всегда используй "follow_player".
-- Если игрок говорит "построй", "построить", "создай", всегда используй "build_platform".
-- Если игрок говорит "скажи", "привет", "напиши", используй "say".
-- Используй ТОЛЬКО точные названия действий, без синонимов.
-
----
-
-Допустимые параметры для "build_platform":
-- "x", "y", "z" — координаты целыми числами (например, 10, 0, -5)
-- "material" — материал из списка ниже (необязательно)
-- "color" — цвет из списка ниже (необязательно)
-
----
-
-Список материалов:
-- Plastic — пластик, гладкий
-- Wood — дерево
-- Slate — сланец, камень
-- Concrete — бетон
-- CorrodedMetal — ржавый металл
-- DiamondPlate — рифленый металл
-- Fabric — ткань
-- FrostedGlass — матовое стекло
-- Grass — трава
-- Ice — лёд
-- Marble — мрамор
-- Metal — металл
-- Neon — неон
-- Pebble — галька
-- Sand — песок
-- SmoothPlastic — гладкий пластик
-- WoodPlanks — деревянные доски
-- Cobblestone — булыжник
-
----
-
-Список цветов:
-- red (красный)
-- blue (синий)
-- green (зелёный)
-- yellow (жёлтый)
-- black (чёрный)
-- white (белый)
-- orange (оранжевый)
-- purple (фиолетовый)
-- pink (розовый)
-- brown (коричневый)
-- gray (серый)
-- light_blue (голубой)
-- cyan (бирюзовый)
-- lime (лаймовый)
-- gold (золотой)
-- silver (серебряный)
-
----
-
-Примеры корректных JSON:
-
-Построить платформу на координатах:
-{
-  "action": "build_platform",
-  "params": { "x": 10, "y": 0, "z": 5, "material": "Wood", "color": "red" }
-}
-
-Следовать за игроком:
-{
-  "action": "follow_player",
-  "params": {}
-}
-
-Сказать текст:
-{
-  "action": "say",
-  "params": { "text": "привет" }
-}
-
----
-
-Отвечай только валидным JSON, без объяснений и текста.
-`
-          },
+          { role: 'system', content: systemPrompt },
           { role: 'user', content: message }
         ]
       })
     });
+
     const body = await aiRes.json();
     const jsonText = body.choices[0].message.content.trim();
-    const parsed = JSON.parse(jsonText);
-    return res.json(parsed);
+
+    let parsed;
+    try {
+      parsed = JSON.parse(jsonText);
+      if (!parsed.action) throw new Error();
+    } catch (e) {
+      parsed = { action: "unknown" };
+    }
+
+    res.json(parsed);
   } catch (err) {
     console.error(err);
     res.status(500).send({ error: 'AI error', details: err.message });
